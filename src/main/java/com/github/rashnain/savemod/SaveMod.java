@@ -284,11 +284,23 @@ public final class SaveMod implements ClientModInitializer {
                 );
     }
 
-    public static ExecutorService backupExecutor() {
+        public static ExecutorService backupExecutor() {
         return BACKUP_EXECUTOR;
     }
 
     public static DateTimeFormatter timestampFormatter() {
         return STAMP;
+    }
+
+    public static Path getSaveDirectory(
+            Minecraft client,
+            String worldDir
+    ) {
+        return client.gameDirectory
+                .toPath()
+                .resolve("savemod")
+                .resolve(worldDir)
+                .toAbsolutePath()
+                .normalize();
     }
 }
