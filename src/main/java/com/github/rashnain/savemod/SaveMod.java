@@ -49,7 +49,7 @@ public final class SaveMod implements ClientModInitializer {
                 );
 
         KeyMapping openList =
-                KeyBindingHelper.registerKeyMapping(
+                KeyMappingHelper.registerKeyMapping(
                         new KeyMapping(
                                 "key.savemod.open_list",
                                 InputConstants.Type.KEYSYM,
@@ -59,7 +59,7 @@ public final class SaveMod implements ClientModInitializer {
                 );
 
         KeyMapping save =
-                KeyBindingHelper.registerKeyMapping(
+                KeyMappingHelper.registerKeyMapping(
                         new KeyMapping(
                                 "key.savemod.save",
                                 InputConstants.Type.KEYSYM,
@@ -74,6 +74,7 @@ public final class SaveMod implements ClientModInitializer {
                 client -> {
 
                     while (openList.consumeClick()) {
+
                         if (isSingleplayer(client)) {
                             client.gui.setScreen(
                                     new SelectSaveScreen(null)
@@ -82,6 +83,7 @@ public final class SaveMod implements ClientModInitializer {
                     }
 
                     while (save.consumeClick()) {
+
                         if (isSingleplayer(client)) {
 
                             client.gui.setScreen(
@@ -141,6 +143,7 @@ public final class SaveMod implements ClientModInitializer {
     private static void automaticSave(
             Minecraft client
     ) {
+
         try {
 
             var server =
