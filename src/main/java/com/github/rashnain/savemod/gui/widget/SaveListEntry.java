@@ -22,7 +22,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class SaveListEntry
         extends ObjectSelectionList.Entry<SaveListEntry> {
@@ -60,12 +63,11 @@ public class SaveListEntry
     ) {
         this.save = save;
         this.list = list;
-
-        this.client =
-                Minecraft.getInstance();
+        this.client = Minecraft.getInstance();
 
         this.dir =
-                SaveMod.DIR.resolve(
+                SaveMod.getSaveDirectory(
+                        client,
                         save.getWorldDir()
                 );
 
@@ -88,20 +90,14 @@ public class SaveListEntry
             boolean doubleClick
     ) {
 
-        if (event.x()
-                - list.getRowLeft()
-                <= 32
-                || Util.getMillis()
-                - lastClick
-                < 250L) {
+        if (event.x() - list.getRowLeft() <= 32
+                || Util.getMillis() - lastClick < 250L) {
 
             load();
-
             return true;
         }
 
-        lastClick =
-                Util.getMillis();
+        lastClick = Util.getMillis();
 
         return true;
     }
@@ -115,11 +111,8 @@ public class SaveListEntry
             float delta
     ) {
 
-        int x =
-                getContentX();
-
-        int y =
-                getContentY();
+        int x = getContentX();
+        int y = getContentY();
 
         graphics.text(
                 client.font,
@@ -146,12 +139,9 @@ public class SaveListEntry
 
         graphics.text(
                 client.font,
-                save.getSizeInMB()
-                        + " MB",
+                save.getSizeInMB() + " MB",
                 x + 35,
-                y
-                        + client.font.lineHeight * 2
-                        + 4,
+                y + client.font.lineHeight * 2 + 4,
                 -0x808080
         );
 
@@ -194,8 +184,7 @@ public class SaveListEntry
     public void load() {
 
         /*
-         * Récupération du vrai dossier saves
-         * de l'instance Modrinth/Minecraft.
+         * Vrai dossier saves de l'instance Modrinth.
          */
         Path savesDir =
                 client.gameDirectory
@@ -211,25 +200,37 @@ public class SaveListEntry
                         )
                         .normalize();
 
-        /*
-         * Protection contre un nom de monde
-         * qui sortirait du dossier saves.
-         */
-        if (!worldPath.startsWith(
-                savesDir
-        )) {
-
-            showLoadError(
-                    new IOException(
-                            "Chemin du monde invalide."
-                    )
+        if (!worldPath.startsWith(savesDir)) {
+            showError(
+                    "Chemin du monde invalide."
             );
+            return;
+        }
 
+        /*
+         * On inspecte le ZIP avant de supprimer
+         * le monde actuel.
+         */
+        ZipLayout layout;
+
+        try {
+            layout = inspectZip(file);
+        } catch (Exception e) {
+            showError(
+                    "Impossible de lire la sauvegarde : "
+                            + e.getMessage()
+            );
+            return;
+        }
+
+        if (!layout.containsLevelDat) {
+            showError(
+                    "level.dat introuvable dans cette sauvegarde."
+            );
             return;
         }
 
         if (client.hasSingleplayerServer()) {
-
             client.disconnectFromWorld(
                     Component.translatable(
                             "savemod.message.closing"
@@ -248,21 +249,13 @@ public class SaveListEntry
         try {
 
             /*
-             * Supprime le monde actuel
-             * dans la BONNE instance.
+             * Supprime le monde dans la bonne instance.
              */
-            if (Files.isDirectory(
-                    worldPath
-            )) {
-
-                FileUtils.deleteDirectory(
-                        worldPath.toFile()
-                );
+            if (Files.isDirectory(worldPath)) {
+                deleteDirectory(worldPath);
             }
 
-            Files.createDirectories(
-                    savesDir
-            );
+            Files.createDirectories(savesDir);
 
             client.setScreenAndShow(
                     new GenericMessageScreen(
@@ -273,32 +266,75 @@ public class SaveListEntry
             );
 
             /*
-             * Décompresse directement dans
-             * le saves de l'instance Modrinth.
+             * Deux formats possibles :
+             *
+             * 1. world/
+             *       level.dat
+             *
+             * 2. level.dat
+             *    region/
              */
-            ZipUtil.unzipFile(
-                    file.toString(),
-                    savesDir.toString()
-            );
+            if (layout.hasWorldFolder) {
+
+                ZipUtil.unzipFile(
+                        file.toString(),
+                        savesDir.toString()
+                );
+
+            } else {
+
+                Files.createDirectories(worldPath);
+
+                ZipUtil.unzipFile(
+                        file.toString(),
+                        worldPath.toString()
+                );
+            }
 
             /*
-             * Vérification importante :
-             * level.dat doit exister.
+             * Vérification finale obligatoire.
              */
             Path levelDat =
                     worldPath.resolve(
                             "level.dat"
                     );
 
-            if (!Files.isRegularFile(
-                    levelDat
-            )) {
+            if (!Files.isRegularFile(levelDat)) {
+
+                Path found =
+                        findLevelDat(
+                                savesDir,
+                                4
+                        );
+
+                if (found != null
+                        && found.getParent() != null
+                        && found.getParent()
+                        .getFileName()
+                        .toString()
+                        .equals(
+                                save.getWorldDir()
+                        )) {
+
+                    levelDat = found;
+                }
+            }
+
+            if (!Files.isRegularFile(levelDat)) {
 
                 throw new IOException(
-                        "level.dat introuvable après restauration : "
-                                + levelDat
+                        "level.dat introuvable après extraction."
+                                + "\nZIP : "
+                                + file
+                                + "\nMonde : "
+                                + worldPath
                 );
             }
+
+            SaveMod.LOGGER.info(
+                    "level.dat trouvé : {}",
+                    levelDat
+            );
 
             client.createWorldOpenFlows()
                     .openWorld(
@@ -308,17 +344,131 @@ public class SaveListEntry
 
         } catch (Exception e) {
 
-            showLoadError(e);
+            SaveMod.LOGGER.error(
+                    "Impossible de restaurer la sauvegarde",
+                    e
+            );
+
+            showError(
+                    "Erreur de restauration : "
+                            + e.getMessage()
+            );
         }
     }
 
-    private void showLoadError(
-            Exception e
+    private static ZipLayout inspectZip(
+            Path zip
+    ) throws IOException {
+
+        boolean containsLevelDat = false;
+        boolean hasWorldFolder = false;
+
+        try (ZipFile archive =
+                     new ZipFile(zip.toFile())) {
+
+            var entries =
+                    archive.entries();
+
+            while (entries.hasMoreElements()) {
+
+                ZipEntry entry =
+                        entries.nextElement();
+
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                String name =
+                        entry.getName()
+                                .replace('\\', '/');
+
+                if (name.equals("level.dat")) {
+                    containsLevelDat = true;
+                }
+
+                if (name.endsWith("/level.dat")) {
+                    containsLevelDat = true;
+                    hasWorldFolder = true;
+                }
+            }
+        }
+
+        return new ZipLayout(
+                containsLevelDat,
+                hasWorldFolder
+        );
+    }
+
+    private static Path findLevelDat(
+            Path root,
+            int maxDepth
+    ) throws IOException {
+
+        if (!Files.exists(root)) {
+            return null;
+        }
+
+        try (var stream =
+                     Files.walk(
+                             root,
+                             maxDepth
+                     )) {
+
+            return stream
+                    .filter(
+                            path ->
+                                    path.getFileName()
+                                            .toString()
+                                            .equals(
+                                                    "level.dat"
+                                            )
+                    )
+                    .filter(
+                            Files::isRegularFile
+                    )
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+    private static void deleteDirectory(
+            Path root
+    ) throws IOException {
+
+        if (!Files.exists(root)) {
+            return;
+        }
+
+        try (var stream =
+                     Files.walk(root)) {
+
+            stream
+                    .sorted(
+                            Comparator.reverseOrder()
+                    )
+                    .forEach(
+                            path -> {
+                                try {
+                                    Files.deleteIfExists(
+                                            path
+                                    );
+                                } catch (IOException e) {
+                                    throw new RuntimeException(
+                                            e
+                                    );
+                                }
+                            }
+                    );
+        }
+    }
+
+    private void showError(
+            String message
     ) {
 
         SaveMod.LOGGER.error(
-                "Impossible de charger la sauvegarde",
-                e
+                "Restauration impossible : {}",
+                message
         );
 
         client.gui
@@ -331,9 +481,7 @@ public class SaveListEntry
                                         "savemod.toast.failed"
                                 ),
                                 Component.literal(
-                                        e.getMessage() == null
-                                                ? "Erreur de restauration"
-                                                : e.getMessage()
+                                        message
                                 )
                         )
                 );
@@ -354,7 +502,6 @@ public class SaveListEntry
 
                             if (newName == null
                                     || newName.isEmpty()) {
-
                                 newName =
                                         save.getWorldDir();
                             }
@@ -438,7 +585,6 @@ public class SaveListEntry
                             if (confirmed) {
 
                                 try {
-
                                     Files.deleteIfExists(
                                             file
                                     );
@@ -458,16 +604,20 @@ public class SaveListEntry
                                     list.getParent()
                             );
                         },
-
                         Component.translatable(
                                 "savemod.delete.question"
                         ),
-
                         Component.translatable(
                                 "selectWorld.deleteWarning",
                                 save.getSaveName()
                         )
                 )
         );
+    }
+
+    private record ZipLayout(
+            boolean containsLevelDat,
+            boolean hasWorldFolder
+    ) {
     }
 }
