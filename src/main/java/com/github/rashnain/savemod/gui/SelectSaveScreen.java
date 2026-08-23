@@ -17,18 +17,20 @@ import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 
 public class SelectSaveScreen extends Screen {
 
-    private static final DateTimeFormatter FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+    private final static java.time.format.DateTimeFormatter FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern(
+                    "yyyy-MM-dd_HH-mm-ss"
+            );
 
     protected final Screen parent;
     protected final Runnable actionWhenClosed;
@@ -49,10 +51,15 @@ public class SelectSaveScreen extends Screen {
             Screen parent,
             Runnable actionWhenClosed
     ) {
-        super(Component.translatable("savemod.list.title"));
+        super(
+                Component.translatable(
+                        "savemod.list.title"
+                )
+        );
 
         this.parent = parent;
-        this.actionWhenClosed = actionWhenClosed;
+        this.actionWhenClosed =
+                actionWhenClosed;
     }
 
     @Override
@@ -64,10 +71,13 @@ public class SelectSaveScreen extends Screen {
         }
 
         if (keyEvent.isSelection()) {
+
             if (saveList != null) {
                 saveList
                         .getSelectedAsOptional()
-                        .ifPresent(SaveListEntry::load);
+                        .ifPresent(
+                                SaveListEntry::load
+                        );
             }
 
             return true;
@@ -123,7 +133,9 @@ public class SelectSaveScreen extends Screen {
                         return;
                     }
 
-                    saveList.setSearch(text);
+                    saveList.setSearch(
+                            text
+                    );
 
                     changeButtons(
                             saveList.getSelected() != null
@@ -272,7 +284,9 @@ public class SelectSaveScreen extends Screen {
     public void onClose() {
 
         if (minecraft != null) {
-            minecraft.gui.setScreen(parent);
+            minecraft.gui.setScreen(
+                    parent
+            );
         }
 
         if (actionWhenClosed != null) {
@@ -314,43 +328,97 @@ public class SelectSaveScreen extends Screen {
                 )
         );
 
-        minecraft.setScreenAndShow(screen);
+        minecraft.setScreenAndShow(
+                screen
+        );
 
         IntegratedServer server =
                 minecraft.getSingleplayerServer();
 
-        if (server != null) {
+        if (server == null) {
+            screen.stop();
+            finishSavingWithoutServer(
+                    saveName
+            );
+            return;
+        }
 
-            CompletableFuture
-                    .runAsync(
-                            () ->
+        /*
+         * 1. Sauvegarde Minecraft sur le thread serveur.
+         *
+         * 2. ZIP sur le thread AutoSave.
+         *
+         * 3. GUI/toast sur le thread Minecraft.
+         */
+        CompletableFuture
+                .runAsync(
+                        () -> {
+
+                            boolean success =
                                     server.saveEverything(
                                             false,
                                             true,
                                             false
-                                    ),
-                            server
-                    )
-                    .thenRunAsync(
-                            () ->
-                                    finishSaving(
-                                            saveName
-                                    ),
-                            minecraft
-                    )
-                    .thenRun(
-                            screen::stop
-                    );
+                                    );
 
-        } else {
+                            if (!success) {
+                                throw new IllegalStateException(
+                                        "Minecraft n'a pas réussi à sauvegarder le monde."
+                                );
+                            }
+                        },
+                        server
+                )
+                .thenRunAsync(
+                        () -> finishSavingAsync(
+                                saveName
+                        ),
+                        SaveMod.backupExecutor()
+                )
+                .thenRunAsync(
+                        screen::stop,
+                        minecraft
+                )
+                .exceptionally(
+                        error -> {
 
-            finishSaving(saveName);
+                            minecraft.execute(
+                                    () -> {
 
-            screen.stop();
-        }
+                                        SaveMod.LOGGER.error(
+                                                "Impossible de créer la sauvegarde",
+                                                error
+                                        );
+
+                                        minecraft.gui
+                                                .toastManager()
+                                                .addToast(
+                                                        new SystemToast(
+                                                                SystemToast.SystemToastId
+                                                                        .PERIODIC_NOTIFICATION,
+                                                                Component.translatable(
+                                                                        "savemod.toast.failed"
+                                                                ),
+                                                                Component.translatable(
+                                                                        "savemod.toast.failed.save"
+                                                                )
+                                                        )
+                                                );
+
+                                        minecraft.gui.setScreen(
+                                                this
+                                        );
+
+                                        screen.stop();
+                                    }
+                            );
+
+                            return null;
+                        }
+                );
     }
 
-    private void finishSaving(
+    private void finishSavingAsync(
             String saveName
     ) {
 
@@ -361,6 +429,25 @@ public class SelectSaveScreen extends Screen {
 
                 throw new IOException(
                         "Aucun monde sélectionné."
+                );
+            }
+
+            Path worldPath =
+                    minecraft
+                            .getSingleplayerServer()
+                            .getWorldPath(
+                                    LevelResource.ROOT
+                            )
+                            .toAbsolutePath()
+                            .normalize();
+
+            if (!Files.isDirectory(
+                    worldPath
+            )) {
+
+                throw new IOException(
+                        "Dossier du monde introuvable : "
+                                + worldPath
                 );
             }
 
@@ -390,53 +477,102 @@ public class SelectSaveScreen extends Screen {
                     );
 
             ZipUtil.createBackup(
-                    "saves/" + SaveMod.worldDir,
+                    worldPath.toString(),
                     target.toString()
             );
 
-            if (saveList != null) {
-                saveList.refresh();
-            }
+            minecraft.execute(
+                    () -> {
 
-            minecraft.gui.toastManager().addToast(
-                    new SystemToast(
-                            SystemToast.SystemToastId
-                                    .PERIODIC_NOTIFICATION,
-                            Component.translatable(
-                                    "savemod.toast.succesful"
-                            ),
-                            Component.translatable(
-                                    "savemod.toast.succesful.save"
-                            )
-                    )
+                        if (saveList != null) {
+                            saveList.refresh();
+                        }
+
+                        minecraft.gui
+                                .toastManager()
+                                .addToast(
+                                        new SystemToast(
+                                                SystemToast.SystemToastId
+                                                        .PERIODIC_NOTIFICATION,
+                                                Component.translatable(
+                                                        "savemod.toast.succesful"
+                                                ),
+                                                Component.translatable(
+                                                        "savemod.toast.succesful.save"
+                                                )
+                                        )
+                                );
+
+                        minecraft.gui.setScreen(
+                                null
+                        );
+                    }
             );
 
-            minecraft.gui.setScreen(null);
+        } catch (Exception e) {
 
-        } catch (IOException e) {
+            minecraft.execute(
+                    () -> {
 
-            SaveMod.LOGGER.error(
-                    "Impossible de créer la sauvegarde",
-                    e
-            );
+                        SaveMod.LOGGER.error(
+                                "Impossible de créer la sauvegarde",
+                                e
+                        );
 
-            minecraft.gui.toastManager().addToast(
-                    new SystemToast(
-                            SystemToast.SystemToastId
-                                    .PERIODIC_NOTIFICATION,
-                            Component.translatable(
-                                    "savemod.toast.failed"
-                            ),
-                            Component.translatable(
-                                    "savemod.toast.failed.save"
-                            )
-                    )
-            );
+                        minecraft.gui
+                                .toastManager()
+                                .addToast(
+                                        new SystemToast(
+                                                SystemToast.SystemToastId
+                                                        .PERIODIC_NOTIFICATION,
+                                                Component.translatable(
+                                                        "savemod.toast.failed"
+                                                ),
+                                                Component.translatable(
+                                                        "savemod.toast.failed.save"
+                                                )
+                                        )
+                                );
 
-            minecraft.gui.setScreen(
-                    this
+                        minecraft.gui.setScreen(
+                                this
+                        );
+                    }
             );
         }
+    }
+
+    private void finishSavingWithoutServer(
+            String saveName
+    ) {
+
+        minecraft.execute(
+                () -> {
+
+                    SaveMod.LOGGER.error(
+                            "Aucun serveur solo disponible."
+                    );
+
+                    minecraft.gui
+                            .toastManager()
+                            .addToast(
+                                    new SystemToast(
+                                            SystemToast.SystemToastId
+                                                    .PERIODIC_NOTIFICATION,
+                                            Component.translatable(
+                                                    "savemod.toast.failed"
+                                            ),
+                                            Component.translatable(
+                                                    "savemod.toast.failed.save"
+                                            )
+                                    )
+                            );
+
+                    minecraft.gui.setScreen(
+                            this
+                    );
+                }
+        );
     }
 
     @Override
