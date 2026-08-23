@@ -1,0 +1,6 @@
+GNU LESSER GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Ce projet contient du code dérivé de SaveMod (Rashnain), sous LGPL-3.0-only.
+Le texte officiel de la licence est disponible dans le projet original :
+https://github.com/Rashnain/SaveMod/blob/main/LICENSE.txt

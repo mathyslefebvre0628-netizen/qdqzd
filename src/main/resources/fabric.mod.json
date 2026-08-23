@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "autosave",
+  "version": "${version}",
+  "name": "Auto Save",
+  "description": "Sauvegarde automatiquement votre monde et gérez vos sauvegardes.",
+  "authors": ["Rashnain", "monsieur"],
+  "license": "LGPL-3.0-only",
+  "icon": "assets/autosave/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.github.rashnain.savemod.SaveMod"],
+    "modmenu": ["com.github.rashnain.savemod.config.ModMenuCompat"]
+  },
+  "mixins": ["savemod.mixins.json"],
+  "depends": {
+    "minecraft": ["~26.2"],
+    "java": [">=25"],
+    "fabricloader": [">=0.19.3"],
+    "fabric-resource-loader-v1": "*",
+    "fabric-key-mapping-api-v1": "*",
+    "fabric-lifecycle-events-v1": "*"
+  }
+}
