@@ -35,11 +35,10 @@ public final class SaveMod implements ClientModInitializer {
 
     /*
      * Dossier des sauvegardes dans l'instance Minecraft active.
-     * Compatible avec Modrinth App.
+     *
+     * Exemple avec Modrinth :
+     * C:\Users\Mathy\AppData\Roaming\ModrinthApp\profiles\test\savemod
      */
-    public static final Path DIR =
-            Path.of("savemod");
-
     public static String worldDir;
 
     private static final DateTimeFormatter STAMP =
@@ -47,27 +46,18 @@ public final class SaveMod implements ClientModInitializer {
                     "yyyy-MM-dd_HH-mm-ss"
             );
 
-    /*
-     * Thread dédié à la compression ZIP.
-     * La compression ne bloque donc pas le thread graphique.
-     */
     private static final ExecutorService BACKUP_EXECUTOR =
             Executors.newSingleThreadExecutor(r -> {
-                Thread thread =
-                        new Thread(
-                                r,
-                                "AutoSave-Backup"
-                        );
+                Thread thread = new Thread(
+                        r,
+                        "AutoSave-Backup"
+                );
 
                 thread.setDaemon(true);
 
                 return thread;
             });
 
-    /*
-     * Empêche plusieurs sauvegardes automatiques
-     * de se compresser en même temps.
-     */
     private static final AtomicBoolean AUTO_SAVE_RUNNING =
             new AtomicBoolean(false);
 
@@ -110,7 +100,6 @@ public final class SaveMod implements ClientModInitializer {
                 client -> {
 
                     while (openList.consumeClick()) {
-
                         if (isSingleplayer(client)) {
                             client.gui.setScreen(
                                     new SelectSaveScreen(null)
@@ -119,9 +108,7 @@ public final class SaveMod implements ClientModInitializer {
                     }
 
                     while (save.consumeClick()) {
-
                         if (isSingleplayer(client)) {
-
                             client.gui.setScreen(
                                     new NameSaveScreen(
                                             null,
@@ -130,16 +117,10 @@ public final class SaveMod implements ClientModInitializer {
                                                     ? ""
                                                     : worldDir,
                                             name -> {
-
                                                 SelectSaveScreen screen =
-                                                        new SelectSaveScreen(
-                                                                null
-                                                        );
+                                                        new SelectSaveScreen(null);
 
-                                                client.gui.setScreen(
-                                                        screen
-                                                );
-
+                                                client.gui.setScreen(screen);
                                                 screen.save(name);
                                             }
                                     )
@@ -147,9 +128,6 @@ public final class SaveMod implements ClientModInitializer {
                         }
                     }
 
-                    /*
-                     * Auto Save désactivé ou aucun monde.
-                     */
                     if (!SaveModConfig.autoSave
                             || !isSingleplayer(client)
                             || worldDir == null
@@ -159,14 +137,8 @@ public final class SaveMod implements ClientModInitializer {
                         return;
                     }
 
-                    /*
-                     * Intervalle atteint.
-                     */
-                    if (++ticks
-                            >= SaveModConfig.intervalTicks()) {
-
+                    if (++ticks >= SaveModConfig.intervalTicks()) {
                         ticks = 0;
-
                         automaticSave(client);
                     }
                 }
@@ -178,27 +150,20 @@ public final class SaveMod implements ClientModInitializer {
     ) {
         return client.hasSingleplayerServer()
                 && client.getSingleplayerServer() != null
-                && !client
-                .getSingleplayerServer()
-                .isPublished();
+                && !client.getSingleplayerServer().isPublished();
     }
 
     private static void automaticSave(
             Minecraft client
     ) {
 
-        /*
-         * Une seule compression à la fois.
-         */
         if (!AUTO_SAVE_RUNNING.compareAndSet(
                 false,
                 true
         )) {
-
             LOGGER.info(
                     "Une sauvegarde automatique est déjà en cours."
             );
-
             return;
         }
 
@@ -214,14 +179,11 @@ public final class SaveMod implements ClientModInitializer {
         }
 
         /*
-         * ÉTAPE 1 :
-         * Minecraft sauvegarde le monde sur son
-         * thread serveur.
+         * Minecraft enregistre d'abord le monde.
          */
         CompletableFuture
                 .runAsync(
                         () -> {
-
                             boolean success =
                                     server.saveEverything(
                                             false,
@@ -230,7 +192,6 @@ public final class SaveMod implements ClientModInitializer {
                                     );
 
                             if (!success) {
-
                                 throw new IllegalStateException(
                                         "Minecraft n'a pas réussi à sauvegarder le monde."
                                 );
@@ -240,8 +201,7 @@ public final class SaveMod implements ClientModInitializer {
                 )
 
                 /*
-                 * ÉTAPE 2 :
-                 * Compression ZIP dans le thread dédié.
+                 * Puis le ZIP est créé dans un thread séparé.
                  */
                 .thenRunAsync(
                         () -> {
@@ -249,11 +209,8 @@ public final class SaveMod implements ClientModInitializer {
                             try {
 
                                 /*
-                                 * IMPORTANT :
-                                 * On récupère le vrai dossier du monde
-                                 * chargé par Minecraft.
-                                 *
-                                 * Cela fonctionne avec Modrinth.
+                                 * VRAI chemin du monde de l'instance.
+                                 * Compatible Modrinth.
                                  */
                                 Path worldPath =
                                         server.getWorldPath(
@@ -262,10 +219,7 @@ public final class SaveMod implements ClientModInitializer {
                                                 .toAbsolutePath()
                                                 .normalize();
 
-                                if (!Files.isDirectory(
-                                        worldPath
-                                )) {
-
+                                if (!Files.isDirectory(worldPath)) {
                                     throw new IllegalStateException(
                                             "Dossier du monde introuvable : "
                                                     + worldPath
@@ -273,8 +227,7 @@ public final class SaveMod implements ClientModInitializer {
                                 }
 
                                 /*
-                                 * Le dossier savemod est dans
-                                 * l'instance Minecraft active.
+                                 * Dossier AutoSave dans l'instance courante.
                                  */
                                 Path saveDir =
                                         client.gameDirectory
@@ -284,21 +237,15 @@ public final class SaveMod implements ClientModInitializer {
                                                 .toAbsolutePath()
                                                 .normalize();
 
-                                Files.createDirectories(
-                                        saveDir
-                                );
+                                Files.createDirectories(saveDir);
 
                                 Path target =
                                         saveDir.resolve(
                                                 STAMP.format(
                                                         LocalDateTime.now()
-                                                )
-                                                        + "_AutoSave.zip"
+                                                ) + "_AutoSave.zip"
                                         );
 
-                                /*
-                                 * Compression en arrière-plan.
-                                 */
                                 ZipUtil.createBackup(
                                         worldPath.toString(),
                                         target.toString()
@@ -317,18 +264,11 @@ public final class SaveMod implements ClientModInitializer {
                                 );
 
                             } finally {
-
-                                AUTO_SAVE_RUNNING.set(
-                                        false
-                                );
+                                AUTO_SAVE_RUNNING.set(false);
                             }
                         },
                         BACKUP_EXECUTOR
                 )
-
-                /*
-                 * Gestion globale des erreurs.
-                 */
                 .exceptionally(
                         error -> {
 
@@ -337,9 +277,7 @@ public final class SaveMod implements ClientModInitializer {
                                     error
                             );
 
-                            AUTO_SAVE_RUNNING.set(
-                                    false
-                            );
+                            AUTO_SAVE_RUNNING.set(false);
 
                             return null;
                         }
