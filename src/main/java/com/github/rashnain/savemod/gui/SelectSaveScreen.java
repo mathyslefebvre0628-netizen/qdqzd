@@ -24,61 +24,112 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 
 public class SelectSaveScreen extends Screen {
+
     private static final DateTimeFormatter FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
     protected final Screen parent;
     protected final Runnable actionWhenClosed;
+
     private SaveListWidget saveList;
     private EditBox searchBox;
-    private Button loadButton, renameButton, duplicateButton, deleteButton;
+
+    private Button loadButton;
+    private Button renameButton;
+    private Button duplicateButton;
+    private Button deleteButton;
 
     public SelectSaveScreen(Screen parent) {
         this(parent, null);
     }
 
-    public SelectSaveScreen(Screen parent, Runnable actionWhenClosed) {
+    public SelectSaveScreen(
+            Screen parent,
+            Runnable actionWhenClosed
+    ) {
         super(Component.translatable("savemod.list.title"));
+
         this.parent = parent;
         this.actionWhenClosed = actionWhenClosed;
     }
 
     @Override
-    public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
-        if (super.keyPressed(keyEvent)) return true;
-        if (keyEvent.isSelection()) {
-            saveList.getSelectedAsOptional().ifPresent(SaveListEntry::load);
+    public boolean keyPressed(
+            net.minecraft.client.input.KeyEvent keyEvent
+    ) {
+        if (super.keyPressed(keyEvent)) {
             return true;
         }
+
+        if (keyEvent.isSelection()) {
+            if (saveList != null) {
+                saveList
+                        .getSelectedAsOptional()
+                        .ifPresent(SaveListEntry::load);
+            }
+
+            return true;
+        }
+
         return false;
     }
 
     @Override
     protected void init() {
+
         HeaderAndFooterLayout layout =
-                new HeaderAndFooterLayout(this, 49, 60);
+                new HeaderAndFooterLayout(
+                        this,
+                        49,
+                        60
+                );
 
         LinearLayout header =
                 layout.addToHeader(
-                        LinearLayout.vertical().spacing(4)
+                        LinearLayout.vertical()
+                                .spacing(4)
                 );
-        header.defaultCellSetting().alignHorizontallyCenter();
-        header.addChild(new StringWidget(title, font));
 
-        searchBox = header.addChild(
-                new EditBox(
-                        font, 0, 0, 220, 20,
-                        null, Component.empty()
+        header
+                .defaultCellSetting()
+                .alignHorizontallyCenter();
+
+        header.addChild(
+                new StringWidget(
+                        title,
+                        font
                 )
         );
 
-        searchBox.setResponder(text -> {
-            saveList.setSearch(text);
-            changeButtons(saveList.getSelected() != null);
-        });
+        searchBox =
+                header.addChild(
+                        new EditBox(
+                                font,
+                                0,
+                                0,
+                                220,
+                                20,
+                                null,
+                                Component.empty()
+                        )
+                );
+
+        searchBox.setResponder(
+                text -> {
+
+                    if (saveList == null) {
+                        return;
+                    }
+
+                    saveList.setSearch(text);
+
+                    changeButtons(
+                            saveList.getSelected() != null
+                    );
+                }
+        );
 
         GridLayout footer =
                 layout.addToFooter(
@@ -86,132 +137,253 @@ public class SelectSaveScreen extends Screen {
                                 .columnSpacing(8)
                                 .rowSpacing(4)
                 );
-        footer.defaultCellSetting().alignHorizontallyCenter();
+
+        footer
+                .defaultCellSetting()
+                .alignHorizontallyCenter();
+
         GridLayout.RowHelper add =
                 footer.createRowHelper(4);
 
-        saveList = new SaveListWidget(
-                this,
-                minecraft,
-                width,
-                layout.getContentHeight(),
-                layout.getHeaderHeight(),
-                36
-        );
-        layout.addToContents(saveList);
+        saveList =
+                new SaveListWidget(
+                        this,
+                        minecraft,
+                        width,
+                        layout.getContentHeight(),
+                        layout.getHeaderHeight(),
+                        36
+                );
 
-        loadButton = add.addChild(
-                Button.builder(
-                        Component.translatable("savemod.list.play"),
-                        _ -> saveList
-                                .getSelectedAsOptional()
-                                .ifPresent(SaveListEntry::load)
-                ).build(),
-                2
+        layout.addToContents(
+                saveList
         );
+
+        loadButton =
+                add.addChild(
+                        Button.builder(
+                                Component.translatable(
+                                        "savemod.list.play"
+                                ),
+                                _ ->
+                                        saveList
+                                                .getSelectedAsOptional()
+                                                .ifPresent(
+                                                        SaveListEntry::load
+                                                )
+                        ).build(),
+                        2
+                );
+
         loadButton.active = false;
 
         add.addChild(
                 Button.builder(
-                        Component.translatable("savemod.list.create"),
-                        _ -> minecraft.gui.setScreen(
-                                new NameSaveScreen(
-                                        this, "", SaveMod.worldDir,
-                                        this::save
+                        Component.translatable(
+                                "savemod.list.create"
+                        ),
+                        _ ->
+                                minecraft.gui.setScreen(
+                                        new NameSaveScreen(
+                                                this,
+                                                "",
+                                                SaveMod.worldDir,
+                                                this::save
+                                        )
                                 )
-                        )
                 ).build(),
                 2
         );
 
-        renameButton = add.addChild(
-                Button.builder(
-                        Component.translatable("savemod.list.rename"),
-                        _ -> saveList
-                                .getSelectedAsOptional()
-                                .ifPresent(SaveListEntry::rename)
-                ).width(71).build()
-        );
+        renameButton =
+                add.addChild(
+                        Button.builder(
+                                Component.translatable(
+                                        "savemod.list.rename"
+                                ),
+                                _ ->
+                                        saveList
+                                                .getSelectedAsOptional()
+                                                .ifPresent(
+                                                        SaveListEntry::rename
+                                                )
+                        )
+                                .width(71)
+                                .build()
+                );
+
         renameButton.active = false;
 
-        deleteButton = add.addChild(
-                Button.builder(
-                        Component.translatable("savemod.list.delete"),
-                        _ -> saveList
-                                .getSelectedAsOptional()
-                                .ifPresent(SaveListEntry::delete)
-                ).width(71).build()
-        );
+        deleteButton =
+                add.addChild(
+                        Button.builder(
+                                Component.translatable(
+                                        "savemod.list.delete"
+                                ),
+                                _ ->
+                                        saveList
+                                                .getSelectedAsOptional()
+                                                .ifPresent(
+                                                        SaveListEntry::delete
+                                                )
+                        )
+                                .width(71)
+                                .build()
+                );
+
         deleteButton.active = false;
 
-        duplicateButton = add.addChild(
-                Button.builder(
-                        Component.translatable("savemod.list.duplicate"),
-                        _ -> saveList
-                                .getSelectedAsOptional()
-                                .ifPresent(SaveListEntry::duplicate)
-                ).width(71).build()
-        );
+        duplicateButton =
+                add.addChild(
+                        Button.builder(
+                                Component.translatable(
+                                        "savemod.list.duplicate"
+                                ),
+                                _ ->
+                                        saveList
+                                                .getSelectedAsOptional()
+                                                .ifPresent(
+                                                        SaveListEntry::duplicate
+                                                )
+                        )
+                                .width(71)
+                                .build()
+                );
+
         duplicateButton.active = false;
 
         add.addChild(
                 Button.builder(
                         CommonComponents.GUI_DONE,
                         _ -> onClose()
-                ).width(71).build()
+                )
+                        .width(71)
+                        .build()
         );
 
-        layout.visitWidgets(this::addRenderableWidget);
+        layout.visitWidgets(
+                this::addRenderableWidget
+        );
+
         layout.arrangeElements();
     }
 
     @Override
     public void onClose() {
-        if (minecraft != null) minecraft.gui.setScreen(parent);
-        if (actionWhenClosed != null) actionWhenClosed.run();
+
+        if (minecraft != null) {
+            minecraft.gui.setScreen(parent);
+        }
+
+        if (actionWhenClosed != null) {
+            actionWhenClosed.run();
+        }
     }
 
-    public void changeButtons(boolean active) {
-        loadButton.active = active;
-        renameButton.active = active;
-        duplicateButton.active = active;
-        deleteButton.active = active;
+    public void changeButtons(
+            boolean active
+    ) {
+
+        if (loadButton != null) {
+            loadButton.active = active;
+        }
+
+        if (renameButton != null) {
+            renameButton.active = active;
+        }
+
+        if (duplicateButton != null) {
+            duplicateButton.active = active;
+        }
+
+        if (deleteButton != null) {
+            deleteButton.active = active;
+        }
     }
 
-    public void save(String saveName) {
-        ProgressScreen screen = new ProgressScreen(false);
+    public void save(
+            String saveName
+    ) {
+
+        ProgressScreen screen =
+                new ProgressScreen(false);
+
         screen.progressStartNoAbort(
-                Component.translatable("savemod.message.saving")
+                Component.translatable(
+                        "savemod.message.saving"
+                )
         );
+
         minecraft.setScreenAndShow(screen);
 
-        IntegratedServer server = minecraft.getSingleplayerServer();
+        IntegratedServer server =
+                minecraft.getSingleplayerServer();
+
         if (server != null) {
-            CompletableFuture.runAsync(
-                    () -> server.saveEverything(false, true, false),
-                    server
-            ).thenRunAsync(
-                    () -> finishSaving(saveName),
-                    minecraft
-            ).thenRun(screen::stop);
+
+            CompletableFuture
+                    .runAsync(
+                            () ->
+                                    server.saveEverything(
+                                            false,
+                                            true,
+                                            false
+                                    ),
+                            server
+                    )
+                    .thenRunAsync(
+                            () ->
+                                    finishSaving(
+                                            saveName
+                                    ),
+                            minecraft
+                    )
+                    .thenRun(
+                            screen::stop
+                    );
+
         } else {
+
             finishSaving(saveName);
+
             screen.stop();
         }
     }
 
-    private void finishSaving(String saveName) {
-        try {
-            Path dir = SaveMod.DIR.resolve(SaveMod.worldDir);
-            Files.createDirectories(dir);
+    private void finishSaving(
+            String saveName
+    ) {
 
-            String name = saveName == null || saveName.isEmpty()
-                    ? "Manual"
-                    : saveName;
+        try {
+
+            if (SaveMod.worldDir == null
+                    || SaveMod.worldDir.isBlank()) {
+
+                throw new IOException(
+                        "Aucun monde sélectionné."
+                );
+            }
+
+            Path dir =
+                    SaveMod.DIR.resolve(
+                            SaveMod.worldDir
+                    );
+
+            Files.createDirectories(
+                    dir
+            );
+
+            String name =
+                    saveName == null
+                            || saveName.isBlank()
+                            ? "Manual"
+                            : saveName;
 
             Path target =
                     dir.resolve(
-                            FORMAT.format(LocalDateTime.now())
+                            FORMAT.format(
+                                    LocalDateTime.now()
+                            )
                                     + "_"
                                     + name
                                     + ".zip"
@@ -222,26 +394,48 @@ public class SelectSaveScreen extends Screen {
                     target.toString()
             );
 
-            saveList.refresh();
+            if (saveList != null) {
+                saveList.refresh();
+            }
+
             minecraft.gui.toastManager().addToast(
                     new SystemToast(
-                            SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
-                            Component.translatable("savemod.toast.succesful"),
-                            Component.translatable("savemod.toast.succesful.save")
+                            SystemToast.SystemToastId
+                                    .PERIODIC_NOTIFICATION,
+                            Component.translatable(
+                                    "savemod.toast.succesful"
+                            ),
+                            Component.translatable(
+                                    "savemod.toast.succesful.save"
+                            )
                     )
             );
+
             minecraft.gui.setScreen(null);
 
-        } catch (IOException | ExecutionException | InterruptedException e) {
-            SaveMod.LOGGER.error("Could not save", e);
+        } catch (IOException e) {
+
+            SaveMod.LOGGER.error(
+                    "Impossible de créer la sauvegarde",
+                    e
+            );
+
             minecraft.gui.toastManager().addToast(
                     new SystemToast(
-                            SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
-                            Component.translatable("savemod.toast.failed"),
-                            Component.translatable("savemod.toast.failed.save")
+                            SystemToast.SystemToastId
+                                    .PERIODIC_NOTIFICATION,
+                            Component.translatable(
+                                    "savemod.toast.failed"
+                            ),
+                            Component.translatable(
+                                    "savemod.toast.failed.save"
+                            )
                     )
             );
-            minecraft.gui.setScreen(this);
+
+            minecraft.gui.setScreen(
+                    this
+            );
         }
     }
 
@@ -252,7 +446,20 @@ public class SelectSaveScreen extends Screen {
             int mouseY,
             float delta
     ) {
-        graphics.fill(0, 0, width, height, 0xFF060606);
-        super.extractRenderState(graphics, mouseX, mouseY, delta);
+
+        graphics.fill(
+                0,
+                0,
+                width,
+                height,
+                0xFF060606
+        );
+
+        super.extractRenderState(
+                graphics,
+                mouseX,
+                mouseY,
+                delta
+        );
     }
 }
