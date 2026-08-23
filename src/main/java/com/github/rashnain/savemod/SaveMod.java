@@ -34,15 +34,11 @@ public final class SaveMod implements ClientModInitializer {
             LoggerFactory.getLogger("AutoSave");
 
     /*
-     * IMPORTANT :
-     * On utilise le vrai dossier de l'instance Minecraft.
-     * Cela fonctionne avec Modrinth App.
+     * Dossier des sauvegardes dans l'instance Minecraft active.
+     * Compatible avec Modrinth App.
      */
     public static final Path DIR =
-            Minecraft.getInstance()
-                    .gameDirectory
-                    .toPath()
-                    .resolve("savemod");
+            Path.of("savemod");
 
     public static String worldDir;
 
@@ -52,8 +48,8 @@ public final class SaveMod implements ClientModInitializer {
             );
 
     /*
-     * Un seul thread pour les compressions.
-     * Cela évite plusieurs ZIP simultanés.
+     * Thread dédié à la compression ZIP.
+     * La compression ne bloque donc pas le thread graphique.
      */
     private static final ExecutorService BACKUP_EXECUTOR =
             Executors.newSingleThreadExecutor(r -> {
@@ -69,9 +65,8 @@ public final class SaveMod implements ClientModInitializer {
             });
 
     /*
-     * Empêche une deuxième sauvegarde automatique
-     * de démarrer alors que la précédente est encore
-     * en cours de compression.
+     * Empêche plusieurs sauvegardes automatiques
+     * de se compresser en même temps.
      */
     private static final AtomicBoolean AUTO_SAVE_RUNNING =
             new AtomicBoolean(false);
@@ -152,6 +147,9 @@ public final class SaveMod implements ClientModInitializer {
                         }
                     }
 
+                    /*
+                     * Auto Save désactivé ou aucun monde.
+                     */
                     if (!SaveModConfig.autoSave
                             || !isSingleplayer(client)
                             || worldDir == null
@@ -161,6 +159,9 @@ public final class SaveMod implements ClientModInitializer {
                         return;
                     }
 
+                    /*
+                     * Intervalle atteint.
+                     */
                     if (++ticks
                             >= SaveModConfig.intervalTicks()) {
 
@@ -186,13 +187,18 @@ public final class SaveMod implements ClientModInitializer {
             Minecraft client
     ) {
 
+        /*
+         * Une seule compression à la fois.
+         */
         if (!AUTO_SAVE_RUNNING.compareAndSet(
                 false,
                 true
         )) {
+
             LOGGER.info(
-                    "Sauvegarde automatique précédente encore en cours."
+                    "Une sauvegarde automatique est déjà en cours."
             );
+
             return;
         }
 
@@ -208,8 +214,9 @@ public final class SaveMod implements ClientModInitializer {
         }
 
         /*
-         * Minecraft sauvegarde d'abord le monde
-         * sur son thread serveur.
+         * ÉTAPE 1 :
+         * Minecraft sauvegarde le monde sur son
+         * thread serveur.
          */
         CompletableFuture
                 .runAsync(
@@ -223,6 +230,7 @@ public final class SaveMod implements ClientModInitializer {
                                     );
 
                             if (!success) {
+
                                 throw new IllegalStateException(
                                         "Minecraft n'a pas réussi à sauvegarder le monde."
                                 );
@@ -232,15 +240,21 @@ public final class SaveMod implements ClientModInitializer {
                 )
 
                 /*
-                 * Une fois la sauvegarde Minecraft terminée,
-                 * la compression ZIP se fait sur notre thread
-                 * d'arrière-plan.
+                 * ÉTAPE 2 :
+                 * Compression ZIP dans le thread dédié.
                  */
                 .thenRunAsync(
                         () -> {
 
                             try {
 
+                                /*
+                                 * IMPORTANT :
+                                 * On récupère le vrai dossier du monde
+                                 * chargé par Minecraft.
+                                 *
+                                 * Cela fonctionne avec Modrinth.
+                                 */
                                 Path worldPath =
                                         server.getWorldPath(
                                                 LevelResource.ROOT
@@ -258,10 +272,17 @@ public final class SaveMod implements ClientModInitializer {
                                     );
                                 }
 
+                                /*
+                                 * Le dossier savemod est dans
+                                 * l'instance Minecraft active.
+                                 */
                                 Path saveDir =
-                                        DIR.resolve(
-                                                worldDir
-                                        );
+                                        client.gameDirectory
+                                                .toPath()
+                                                .resolve("savemod")
+                                                .resolve(worldDir)
+                                                .toAbsolutePath()
+                                                .normalize();
 
                                 Files.createDirectories(
                                         saveDir
@@ -275,6 +296,9 @@ public final class SaveMod implements ClientModInitializer {
                                                         + "_AutoSave.zip"
                                         );
 
+                                /*
+                                 * Compression en arrière-plan.
+                                 */
                                 ZipUtil.createBackup(
                                         worldPath.toString(),
                                         target.toString()
@@ -293,6 +317,7 @@ public final class SaveMod implements ClientModInitializer {
                                 );
 
                             } finally {
+
                                 AUTO_SAVE_RUNNING.set(
                                         false
                                 );
@@ -301,11 +326,14 @@ public final class SaveMod implements ClientModInitializer {
                         BACKUP_EXECUTOR
                 )
 
+                /*
+                 * Gestion globale des erreurs.
+                 */
                 .exceptionally(
                         error -> {
 
                             LOGGER.error(
-                                    "Échec de la sauvegarde Minecraft",
+                                    "Échec de la sauvegarde automatique",
                                     error
                             );
 
